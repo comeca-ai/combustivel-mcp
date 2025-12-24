@@ -1,288 +1,208 @@
 from fastmcp import FastMCP
 
-mcp = FastMCP("calculadora-combustivel")
-
-# Constantes de rendimento baseadas em dados reais
-RENDIMENTO = {
-    "GASOLINA": 1.0,    # Base de comparacao
-    "ETANOL": 0.7,      # Etanol rende ~70% da gasolina
-    "GNV": 0.6,         # GNV rende ~60% da gasolina
-}
-
-# Validacao de precos realistas (Brasil 2024-2025)
-PRECO_MIN = 2.5
-PRECO_MAX = 10.0
+mcp = FastMCP("calculadora-alcool-gasolina")
 
 
-@mcp.tool()
-def qual_combustivel_abastecer(
-    preco_gasolina: float,
-    preco_etanol: float,
-    preco_gnv: float = None,
-    modo_saida: str = "completo"
-) -> dict:
-    """Use this to determine which fuel is more economical to use.
-    Compares gasoline, ethanol and CNG considering efficiency.
+def calcular_combustivel_interno(km_l_gasolina: float, preco_gasolina: float,
+                                  km_l_alcool: float, preco_alcool: float) -> dict:
+    """Calcula qual combustivel compensa mais."""
 
-    Args:
-        preco_gasolina: Gasoline price per liter (R$)
-        preco_etanol: Ethanol price per liter (R$)
-        preco_gnv: CNG price per m3 (R$) - optional
-        modo_saida: "completo" for detailed analysis, "resumido" for quick answer
-    """
-
-    # Calcula custo real por litro equivalente considerando rendimento
-    custo_real_gasolina = preco_gasolina / RENDIMENTO["GASOLINA"]
-    custo_real_etanol = preco_etanol / RENDIMENTO["ETANOL"]
-    custo_real_gnv = preco_gnv / RENDIMENTO["GNV"] if preco_gnv else float('inf')
-
-    # Encontra o mais economico
-    melhor_opcao = "gasolina"
-    menor_custo = custo_real_gasolina
-
-    if custo_real_etanol < menor_custo:
-        melhor_opcao = "etanol"
-        menor_custo = custo_real_etanol
-
-    if custo_real_gnv < menor_custo:
-        melhor_opcao = "gnv"
-        menor_custo = custo_real_gnv
-
-    # Calcula economia percentual
-    economia_etanol = ((custo_real_gasolina - custo_real_etanol) / custo_real_gasolina) * 100
-    economia_gnv = ((custo_real_gasolina - custo_real_gnv) / custo_real_gasolina) * 100 if preco_gnv else None
-
-    # Relacao etanol/gasolina
-    relacao_etanol = (preco_etanol / preco_gasolina) * 100
-
-    return {
-        "recomendacao": melhor_opcao.upper(),
-        "analise": {
-            "gasolina": {
-                "preco": preco_gasolina,
-                "custo_real": round(custo_real_gasolina, 2),
-                "rendimento": "100%"
-            },
-            "etanol": {
-                "preco": preco_etanol,
-                "custo_real": round(custo_real_etanol, 2),
-                "rendimento": "70%",
-                "economia_vs_gasolina": f"{economia_etanol:.1f}%",
-                "relacao_preco": f"{relacao_etanol:.1f}%",
-                "compensa": relacao_etanol < 70
-            },
-            "gnv": {
-                "preco": preco_gnv,
-                "custo_real": round(custo_real_gnv, 2) if preco_gnv else None,
-                "rendimento": "60%",
-                "economia_vs_gasolina": f"{economia_gnv:.1f}%" if economia_gnv else None
-            } if preco_gnv else None
-        },
-        "explicacao": f"Abasteça com {melhor_opcao.upper()}! " + (
-            f"Economia de {economia_etanol:.1f}% vs gasolina." if melhor_opcao == "etanol"
-            else f"Economia de {economia_gnv:.1f}% vs gasolina." if melhor_opcao == "gnv"
-            else "Nenhum combustivel alternativo compensa no momento."
-        ),
-        "dica": "Etanol compensa quando preco <= 70% da gasolina"
-    }
-
-
-@mcp.tool()
-def calcular_economia(
-    preco_gasolina: float,
-    preco_etanol: float,
-    litros: float,
-    preco_gnv: float = None
-) -> dict:
-    """Use this to calculate how much you save with a specific fuel volume.
-
-    Args:
-        preco_gasolina: Gasoline price per liter (R$)
-        preco_etanol: Ethanol price per liter (R$)
-        litros: Amount of gasoline liters as reference
-        preco_gnv: CNG price per m3 (R$) - optional
-    """
-
-    # Custo com gasolina
-    custo_gasolina = preco_gasolina * litros
-
-    # Litros equivalentes de etanol (precisa mais litros por menor rendimento)
-    litros_etanol_equivalente = (litros * RENDIMENTO["GASOLINA"]) / RENDIMENTO["ETANOL"]
-    custo_etanol = preco_etanol * litros_etanol_equivalente
-
-    # m3 equivalentes de GNV
-    m3_gnv_equivalente = None
-    custo_gnv = None
-    if preco_gnv:
-        m3_gnv_equivalente = (litros * RENDIMENTO["GASOLINA"]) / RENDIMENTO["GNV"]
-        custo_gnv = preco_gnv * m3_gnv_equivalente
-
-    # Economia
-    economia_etanol = custo_gasolina - custo_etanol
-    economia_gnv = custo_gasolina - custo_gnv if custo_gnv else None
-
-    # Melhor opcao
-    melhor = "gasolina"
-    melhor_economia = 0
-
-    if economia_etanol > melhor_economia:
-        melhor = "etanol"
-        melhor_economia = economia_etanol
-
-    if economia_gnv and economia_gnv > melhor_economia:
-        melhor = "gnv"
-        melhor_economia = economia_gnv
-
-    return {
-        "referencia": f"{litros}L de gasolina",
-        "custos": {
-            "gasolina": {
-                "quantidade": f"{litros}L",
-                "custo": round(custo_gasolina, 2)
-            },
-            "etanol": {
-                "quantidade": f"{litros_etanol_equivalente:.1f}L",
-                "custo": round(custo_etanol, 2),
-                "economia": round(economia_etanol, 2)
-            },
-            "gnv": {
-                "quantidade": f"{m3_gnv_equivalente:.1f}m³",
-                "custo": round(custo_gnv, 2),
-                "economia": round(economia_gnv, 2)
-            } if preco_gnv else None
-        },
-        "melhor_opcao": melhor.upper(),
-        "economia_total": round(melhor_economia, 2),
-        "percentual_economia": f"{(melhor_economia / custo_gasolina * 100):.1f}%" if melhor_economia > 0 else "0%"
-    }
-
-
-@mcp.tool()
-def comparar_viagem(
-    distancia: float,
-    consumo_gasolina: float,
-    preco_gasolina: float,
-    preco_etanol: float,
-    preco_gnv: float = None
-) -> dict:
-    """Use this to compare fuel costs for a specific trip distance.
-
-    Args:
-        distancia: Trip distance in km
-        consumo_gasolina: Vehicle consumption in km/L with gasoline
-        preco_gasolina: Gasoline price per liter (R$)
-        preco_etanol: Ethanol price per liter (R$)
-        preco_gnv: CNG price per m3 (R$) - optional
-    """
-
-    # Consumo com cada combustivel
-    consumo_etanol = consumo_gasolina * RENDIMENTO["ETANOL"]
-    consumo_gnv = consumo_gasolina * RENDIMENTO["GNV"]
-
-    # Quantidade necessaria
-    litros_gasolina = distancia / consumo_gasolina
-    litros_etanol = distancia / consumo_etanol
-    m3_gnv = distancia / consumo_gnv
-
-    # Custos
-    custo_gasolina = litros_gasolina * preco_gasolina
-    custo_etanol = litros_etanol * preco_etanol
-    custo_gnv = m3_gnv * preco_gnv if preco_gnv else None
+    # Validacao
+    if km_l_gasolina <= 0 or preco_gasolina <= 0 or km_l_alcool <= 0 or preco_alcool <= 0:
+        raise ValueError("Todos os valores devem ser maiores que zero")
 
     # Custo por km
-    custo_km_gasolina = custo_gasolina / distancia
-    custo_km_etanol = custo_etanol / distancia
-    custo_km_gnv = custo_gnv / distancia if custo_gnv else None
+    custo_por_km_gasolina = preco_gasolina / km_l_gasolina
+    custo_por_km_alcool = preco_alcool / km_l_alcool
 
-    # Ordenar por custo
-    opcoes = [
-        {"tipo": "GASOLINA", "custo": custo_gasolina},
-        {"tipo": "ETANOL", "custo": custo_etanol},
-    ]
-    if custo_gnv:
-        opcoes.append({"tipo": "GNV", "custo": custo_gnv})
+    # Qual compensa mais
+    compensa_mais = "Alcool" if custo_por_km_alcool < custo_por_km_gasolina else "Gasolina"
+    economia = abs(custo_por_km_gasolina - custo_por_km_alcool)
+    porcentagem_economia = (economia / max(custo_por_km_gasolina, custo_por_km_alcool)) * 100
 
-    opcoes.sort(key=lambda x: x["custo"])
+    # Ponto de equilibrio
+    ponto_equilibrio = (km_l_alcool / km_l_gasolina) * 100
+    preco_equilibrio_alcool = preco_gasolina * (km_l_alcool / km_l_gasolina)
 
     return {
-        "viagem": f"{distancia} km",
-        "consumo_veiculo": f"{consumo_gasolina} km/L (gasolina)",
-        "comparativo": {
-            "gasolina": {
-                "quantidade": f"{litros_gasolina:.1f}L",
-                "custo_total": round(custo_gasolina, 2),
-                "custo_por_km": round(custo_km_gasolina, 3)
-            },
-            "etanol": {
-                "quantidade": f"{litros_etanol:.1f}L",
-                "custo_total": round(custo_etanol, 2),
-                "custo_por_km": round(custo_km_etanol, 3),
-                "economia": round(custo_gasolina - custo_etanol, 2)
-            },
-            "gnv": {
-                "quantidade": f"{m3_gnv:.1f}m³",
-                "custo_total": round(custo_gnv, 2),
-                "custo_por_km": round(custo_km_gnv, 3),
-                "economia": round(custo_gasolina - custo_gnv, 2)
-            } if preco_gnv else None
-        },
-        "ranking": [o["tipo"] for o in opcoes],
-        "recomendacao": opcoes[0]["tipo"],
-        "melhor_custo": round(opcoes[0]["custo"], 2)
+        "compensa_mais": compensa_mais,
+        "custo_por_km_gasolina": round(custo_por_km_gasolina, 4),
+        "custo_por_km_alcool": round(custo_por_km_alcool, 4),
+        "economia_por_km": round(economia, 4),
+        "porcentagem_economia": round(porcentagem_economia, 2),
+        "ponto_equilibrio_porcentagem": round(ponto_equilibrio, 2),
+        "preco_equilibrio_alcool": round(preco_equilibrio_alcool, 2),
+        "recomendacao": f"Compensa abastecer com {compensa_mais}. Voce economiza R$ {economia:.4f} por km rodado.",
+        "detalhes": f"O alcool compensa ate R$ {preco_equilibrio_alcool:.2f} ({ponto_equilibrio:.1f}% do preco da gasolina)."
     }
 
 
 @mcp.tool()
-def dicas_economia_combustivel() -> dict:
-    """Use this to get tips on how to save fuel.
-    Returns 7 practical tips for fuel economy."""
+def calcular_combustivel(
+    km_l_gasolina: float,
+    preco_gasolina: float,
+    km_l_alcool: float,
+    preco_alcool: float
+) -> dict:
+    """Calcula qual combustivel compensa mais: alcool ou gasolina.
+    Compara o custo por quilometro de cada combustivel baseado no consumo do veiculo.
+
+    Use this when user wants to know which fuel is better, compare alcohol vs gasoline,
+    or calculate fuel efficiency.
+
+    Args:
+        km_l_gasolina: Consumo do veiculo com gasolina em km/litro (ex: 12.5)
+        preco_gasolina: Preco da gasolina em reais por litro (ex: 5.49)
+        km_l_alcool: Consumo do veiculo com alcool em km/litro (ex: 8.8)
+        preco_alcool: Preco do alcool em reais por litro (ex: 3.79)
+    """
+
+    return calcular_combustivel_interno(km_l_gasolina, preco_gasolina, km_l_alcool, preco_alcool)
+
+
+@mcp.tool()
+def calcular_economia_mensal(
+    km_l_gasolina: float,
+    preco_gasolina: float,
+    km_l_alcool: float,
+    preco_alcool: float,
+    km_mensal: float
+) -> dict:
+    """Calcula a economia mensal ao escolher o combustivel mais vantajoso.
+    Baseado na quilometragem rodada por mes.
+
+    Use this when user wants to know monthly or yearly savings on fuel.
+
+    Args:
+        km_l_gasolina: Consumo do veiculo com gasolina em km/litro (ex: 12.5)
+        preco_gasolina: Preco da gasolina em reais por litro (ex: 5.49)
+        km_l_alcool: Consumo do veiculo com alcool em km/litro (ex: 8.8)
+        preco_alcool: Preco do alcool em reais por litro (ex: 3.79)
+        km_mensal: Quilometragem rodada por mes (ex: 1000)
+    """
+
+    resultado = calcular_combustivel_interno(km_l_gasolina, preco_gasolina, km_l_alcool, preco_alcool)
+
+    # Custos mensais
+    custo_mensal_gasolina = (km_mensal / km_l_gasolina) * preco_gasolina
+    custo_mensal_alcool = (km_mensal / km_l_alcool) * preco_alcool
+    economia_mensal = abs(custo_mensal_gasolina - custo_mensal_alcool)
+    economia_anual = economia_mensal * 12
+
+    # Litros consumidos por mes
+    litros_gasolina_mes = km_mensal / km_l_gasolina
+    litros_alcool_mes = km_mensal / km_l_alcool
 
     return {
-        "titulo": "7 Dicas para Economizar Combustivel",
+        **resultado,
+        "km_mensal": km_mensal,
+        "consumo_mensal": {
+            "litros_gasolina": round(litros_gasolina_mes, 1),
+            "litros_alcool": round(litros_alcool_mes, 1)
+        },
+        "custo_mensal_gasolina": round(custo_mensal_gasolina, 2),
+        "custo_mensal_alcool": round(custo_mensal_alcool, 2),
+        "economia_mensal": round(economia_mensal, 2),
+        "economia_anual": round(economia_anual, 2),
+        "resumo": f"Rodando {km_mensal} km/mes, voce economiza R$ {economia_mensal:.2f}/mes (R$ {economia_anual:.2f}/ano) abastecendo com {resultado['compensa_mais']}."
+    }
+
+
+@mcp.tool()
+def simular_abastecimento(
+    km_l_gasolina: float,
+    preco_gasolina: float,
+    km_l_alcool: float,
+    preco_alcool: float,
+    valor_abastecimento: float
+) -> dict:
+    """Simula quanto voce roda com um valor de abastecimento.
+    Compara a autonomia entre alcool e gasolina para o mesmo valor gasto.
+
+    Use this when user wants to know how far they can go with a specific amount of money.
+
+    Args:
+        km_l_gasolina: Consumo do veiculo com gasolina em km/litro (ex: 12.5)
+        preco_gasolina: Preco da gasolina em reais por litro (ex: 5.49)
+        km_l_alcool: Consumo do veiculo com alcool em km/litro (ex: 8.8)
+        preco_alcool: Preco do alcool em reais por litro (ex: 3.79)
+        valor_abastecimento: Valor em reais para abastecer (ex: 100)
+    """
+
+    # Litros comprados
+    litros_gasolina = valor_abastecimento / preco_gasolina
+    litros_alcool = valor_abastecimento / preco_alcool
+
+    # Autonomia (km que roda)
+    km_gasolina = litros_gasolina * km_l_gasolina
+    km_alcool = litros_alcool * km_l_alcool
+
+    # Qual rende mais
+    melhor = "Gasolina" if km_gasolina > km_alcool else "Alcool"
+    diferenca_km = abs(km_gasolina - km_alcool)
+
+    return {
+        "valor_abastecimento": valor_abastecimento,
+        "gasolina": {
+            "litros": round(litros_gasolina, 2),
+            "autonomia_km": round(km_gasolina, 1),
+            "custo_por_km": round(valor_abastecimento / km_gasolina, 4)
+        },
+        "alcool": {
+            "litros": round(litros_alcool, 2),
+            "autonomia_km": round(km_alcool, 1),
+            "custo_por_km": round(valor_abastecimento / km_alcool, 4)
+        },
+        "melhor_opcao": melhor,
+        "diferenca_km": round(diferenca_km, 1),
+        "resumo": f"Com R$ {valor_abastecimento:.2f}, voce roda {km_gasolina:.1f} km com gasolina ou {km_alcool:.1f} km com alcool. {melhor} rende {diferenca_km:.1f} km a mais."
+    }
+
+
+@mcp.tool()
+def dicas_economia() -> dict:
+    """Retorna dicas para economizar combustivel e informacoes uteis.
+
+    Use this when user asks for tips on saving fuel or fuel economy advice."""
+
+    return {
+        "regra_de_ouro": "O alcool compensa quando seu preco for ate 70% do preco da gasolina (considerando consumo medio)",
+        "como_calcular": "Divida o preco do alcool pelo preco da gasolina. Se der menos que 0.70, compensa alcool.",
+        "exemplo": {
+            "gasolina": 5.99,
+            "alcool": 3.89,
+            "calculo": "3.89 / 5.99 = 0.65 (65%)",
+            "resultado": "Compensa ALCOOL pois 65% < 70%"
+        },
         "dicas": [
             {
-                "numero": 1,
-                "titulo": "Mantenha os pneus calibrados",
-                "descricao": "A pressao correta reduz o atrito e economiza ate 10% de combustivel.",
-                "economia_potencial": "ate 10%"
+                "titulo": "Conheca seu carro",
+                "descricao": "Cada veiculo tem consumo diferente. Anote a quilometragem e litros abastecidos para calcular seu consumo real."
             },
             {
-                "numero": 2,
-                "titulo": "Evite aceleracoes bruscas",
-                "descricao": "Acelere suavemente e mantenha velocidade constante.",
-                "economia_potencial": "ate 20%"
+                "titulo": "Pneus calibrados",
+                "descricao": "Pneus murchos aumentam o consumo em ate 10%. Calibre semanalmente."
             },
             {
-                "numero": 3,
-                "titulo": "Desligue o ar-condicionado quando possivel",
-                "descricao": "O AC pode aumentar o consumo em ate 20%. Use apenas quando necessario.",
-                "economia_potencial": "ate 20%"
+                "titulo": "Direcao suave",
+                "descricao": "Aceleracoes e freadas bruscas aumentam o consumo em ate 20%."
             },
             {
-                "numero": 4,
-                "titulo": "Nao deixe o carro ligado parado",
-                "descricao": "Se for ficar parado por mais de 1 minuto, desligue o motor.",
-                "economia_potencial": "variavel"
+                "titulo": "Ar-condicionado",
+                "descricao": "O AC pode aumentar o consumo em 10-20%. Use com moderacao."
             },
             {
-                "numero": 5,
-                "titulo": "Mantenha a manutencao em dia",
-                "descricao": "Troca de oleo, filtros limpos e velas em bom estado melhoram a eficiencia.",
-                "economia_potencial": "ate 15%"
+                "titulo": "Peso extra",
+                "descricao": "Cada 50kg extras aumentam o consumo em cerca de 2%."
             },
             {
-                "numero": 6,
-                "titulo": "Retire peso desnecessario do porta-malas",
-                "descricao": "Cada 50kg extras aumentam o consumo em ate 2%.",
-                "economia_potencial": "ate 5%"
-            },
-            {
-                "numero": 7,
-                "titulo": "Planeje suas rotas",
-                "descricao": "Evite horarios de transito intenso e escolha rotas mais diretas.",
-                "economia_potencial": "ate 15%"
+                "titulo": "Manutencao em dia",
+                "descricao": "Filtros sujos, velas gastas e oleo vencido prejudicam a eficiencia."
             }
         ],
-        "resumo": "Seguindo essas dicas, voce pode economizar ate 30% no consumo!",
-        "regra_de_ouro": "Etanol compensa quando seu preco for ate 70% do preco da gasolina"
+        "consumo_medio_referencia": {
+            "carro_popular": {"gasolina": "12-14 km/L", "alcool": "8-10 km/L"},
+            "sedan_medio": {"gasolina": "10-12 km/L", "alcool": "7-9 km/L"},
+            "suv": {"gasolina": "8-10 km/L", "alcool": "6-8 km/L"}
+        }
     }
